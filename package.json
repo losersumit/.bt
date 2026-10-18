@@ -1,0 +1,17 @@
+{
+  "name": "bt-skin-bot",
+  "version": "1.0.0",
+  "description": "Discord slash-command bot for Beyond Transit skins",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.22.1",
+    "dotenv": "^16.6.1"
+  }
+}
