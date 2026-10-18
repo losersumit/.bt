@@ -4,7 +4,6 @@ const path = require('node:path');
 const { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, WebhookClient } = require('discord.js');
 
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID, BT_WEBHOOK_URL } = process.env;
-const REQUIRED_ROLE_ID = '1480435251263307879'; // Required to receive skins
 const ADD_SKIN_ROLE_ID = '1476225310021386240'; // Required to use /add-skin
 const BUTTON_LOG_CHANNEL_ID = '1489298733895122986';
 const FOOTER_ICON = 'https://i.ibb.co/fVYT7mxg/BT.jpg';
@@ -47,7 +46,8 @@ const command = new SlashCommandBuilder().setName('add-skin').setDescription('Pu
   .addStringOption(o => o.setName('skin-creator').setDescription('Skin creator').setRequired(true))
   .addStringOption(o => o.setName('name').setDescription('Skin name').setRequired(true))
   .addStringOption(o => o.setName('description').setDescription('Skin description').setRequired(true))
-  .addStringOption(o => o.setName('color').setDescription('Optional hex color, e.g. #4452bb').setRequired(false));
+  .addStringOption(o => o.setName('color').setDescription('Optional hex color, e.g. #4452bb').setRequired(false))
+  .addRoleOption(o => o.setName('roles').setDescription('Role required to get this skin').setRequired(true));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 client.once(Events.ClientReady, async c => {
@@ -103,6 +103,7 @@ async function addSkin(i) {
     const name = i.options.getString('name', true);
     const description = i.options.getString('description', true);
     const color = parseColor(i.options.getString('color'));
+    const requiredRole = i.options.getRole('roles', true);
     if (link.guildId !== i.guildId) return i.editReply('The source message must be in this server.');
     const sourceChannel = await client.channels.fetch(link.channelId);
     if (!sourceChannel?.isTextBased() || !sourceChannel.messages) return i.editReply('I cannot access that message channel.');
@@ -121,7 +122,8 @@ async function addSkin(i) {
     const existing = isUpdate ? skins[code] : null;
     const skinRecord = { code, creator, name, description, sourceGuildId: link.guildId,
       sourceChannelId: link.channelId, sourceMessageId: link.messageId,
-      sourceAttachmentIds: sourceAttachments.map(a => a.id), publishedBy: i.user.id,
+      sourceAttachmentIds: sourceAttachments.map(a => a.id), requiredRoleId: requiredRole.id,
+      requiredRoleName: requiredRole.name, publishedBy: i.user.id,
       publishedAt: new Date().toISOString() };
 
     const webhook = new WebhookClient({ url: BT_WEBHOOK_URL });
@@ -151,8 +153,8 @@ async function buySkin(i) {
   if (!skin) return i.reply({ content: 'Skin not found in the registry. Contact an administrator.', ephemeral: true });
   if (!i.inGuild()) return i.reply({ content: 'Use this button inside the server.', ephemeral: true });
   const member = await i.guild.members.fetch(i.user.id).catch(() => null);
-  if (!member || !member.roles.cache.has(REQUIRED_ROLE_ID)) {
-    return i.reply({ content: 'You need the required Beyond Transit role to get this skin.', ephemeral: true });
+  if (!member || !skin.requiredRoleId || !member.roles.cache.has(skin.requiredRoleId)) {
+    return i.reply({ content: `You need the role required for this skin${skin.requiredRoleName ? ` (\u003c@\u0026${skin.requiredRoleId}\u003e)` : ''} to get it.`, ephemeral: true });
   }
   await i.deferReply({ ephemeral: true });
   try {
