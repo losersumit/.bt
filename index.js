@@ -4,7 +4,9 @@ const path = require('node:path');
 const { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, WebhookClient } = require('discord.js');
 
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID, BT_WEBHOOK_URL } = process.env;
-const REQUIRED_ROLE_ID = '1480435251263307879';
+const REQUIRED_ROLE_ID = '1480435251263307879'; // Required to receive skins
+const ADD_SKIN_ROLE_ID = '1476225310021386240'; // Required to use /add-skin
+const BUTTON_LOG_CHANNEL_ID = '1489298733895122986';
 const FOOTER_ICON = 'https://i.ibb.co/fVYT7mxg/BT.jpg';
 const DEFAULT_COLOR = 0x4452bb;
 const DATA_FILE = path.join(__dirname, 'skins.json');
@@ -59,13 +61,41 @@ client.once(Events.ClientReady, async c => {
 });
 client.on(Events.InteractionCreate, async i => {
   if (i.isChatInputCommand() && i.commandName === 'add-skin') return addSkin(i);
-  if (i.isButton() && i.customId.startsWith('buy_')) return buySkin(i);
+  if (i.isButton()) {
+    // Log every button interaction this bot receives, including buttons it doesn't otherwise process.
+    logButtonClick(i).catch(error => console.error('Button click logging failed:', error));
+    if (i.customId.startsWith('buy_')) return buySkin(i);
+  }
 });
+
+async function logButtonClick(i) {
+  const channel = await client.channels.fetch(BUTTON_LOG_CHANNEL_ID).catch(() => null);
+  if (!channel?.isTextBased() || !channel.send) {
+    console.error('Button log channel is unavailable or not a text channel.');
+    return;
+  }
+  const embed = new EmbedBuilder()
+    .setColor(DEFAULT_COLOR)
+    .setTitle('Button Clicked')
+    .addFields(
+      { name: 'User', value: `${i.user.tag} (\`${i.user.id}\`)`, inline: false },
+      { name: 'Button ID', value: `\`${String(i.customId).slice(0, 900)}\``, inline: false },
+      { name: 'Server', value: i.guild ? `${i.guild.name} (\`${i.guild.id}\`)` : 'DM', inline: true },
+      { name: 'Channel', value: i.channel ? `${i.channel.name || 'Unknown'} (\`${i.channel.id}\`)` : 'Unknown', inline: true },
+      { name: 'Message ID', value: `\`${i.message.id}\``, inline: true }
+    )
+    .setTimestamp();
+  await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+}
 
 async function addSkin(i) {
   await i.deferReply({ ephemeral: true });
   try {
     if (!i.inGuild()) return i.editReply('Use this command in a server.');
+    const member = await i.guild.members.fetch(i.user.id).catch(() => null);
+    if (!member || !member.roles.cache.has(ADD_SKIN_ROLE_ID)) {
+      return i.editReply('You need the required skin-manager role to use /add-skin.');
+    }
     const code = normalizeCode(i.options.getString('code', true));
     const link = parseMessageLink(i.options.getString('message-link', true));
     const image = i.options.getAttachment('attachment', true);
@@ -77,8 +107,8 @@ async function addSkin(i) {
     const sourceChannel = await client.channels.fetch(link.channelId);
     if (!sourceChannel?.isTextBased() || !sourceChannel.messages) return i.editReply('I cannot access that message channel.');
     const sourceMessage = await sourceChannel.messages.fetch(link.messageId);
-    const sourceAttachment = sourceMessage.attachments.first();
-    if (!sourceAttachment) return i.editReply('The linked message has no attachment.');
+    const sourceAttachments = [...sourceMessage.attachments.values()];
+    if (!sourceAttachments.length) return i.editReply('The linked message has no attachment.');
 
     const embed = new EmbedBuilder().setColor(color).setAuthor({ name: `SKIN CREATOR : ${creator}` })
       .setTitle(name).setDescription(description).setImage(image.url)
@@ -89,7 +119,7 @@ async function addSkin(i) {
     const skins = readSkins();
     skins[code] = { code, creator, name, description, sourceGuildId: link.guildId,
       sourceChannelId: link.channelId, sourceMessageId: link.messageId,
-      sourceAttachmentId: sourceAttachment.id, publishedBy: i.user.id, publishedAt: new Date().toISOString() };
+      sourceAttachmentIds: sourceAttachments.map(a => a.id), publishedBy: i.user.id, publishedAt: new Date().toISOString() };
     await new WebhookClient({ url: BT_WEBHOOK_URL }).send({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
     writeSkins(skins);
     return i.editReply(`Published **${name}** with code \`${code}\`.`);
@@ -110,13 +140,19 @@ async function buySkin(i) {
     const channel = await client.channels.fetch(skin.sourceChannelId);
     if (!channel?.isTextBased() || !channel.messages) throw new Error('The source channel is inaccessible.');
     const message = await channel.messages.fetch(skin.sourceMessageId);
-    const attachment = message.attachments.get(skin.sourceAttachmentId) || message.attachments.first();
-    if (!attachment) throw new Error('The source message no longer has an attachment.');
-    const response = await fetch(attachment.url);
-    if (!response.ok) throw new Error(`Attachment download failed (HTTP ${response.status}).`);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    await i.user.send({ content: `Here is **${skin.name}** (\`${code}\`).`,
-      files: [new AttachmentBuilder(buffer, { name: attachment.name || `${code}-skin` })],
+    const attachments = [...message.attachments.values()];
+    if (!attachments.length) throw new Error('The source message no longer has any attachments.');
+    const files = [];
+    for (let index = 0; index < attachments.length; index++) {
+      const attachment = attachments[index];
+      // Use the freshly fetched attachment URL and download every attachment in the source message.
+      const response = await fetch(attachment.url);
+      if (!response.ok) throw new Error(`Attachment download failed for ${attachment.name || index + 1} (HTTP ${response.status}).`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      files.push(new AttachmentBuilder(buffer, { name: attachment.name || `${code}-${index + 1}` }));
+    }
+    await i.user.send({ content: `Here are all attachments for **${skin.name}** (\`${code}\`).`,
+      files,
       allowedMentions: { parse: [] } });
     return i.editReply('Skin sent to your DMs.');
   } catch (e) {
