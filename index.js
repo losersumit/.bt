@@ -100,7 +100,9 @@ async function buySkin(i) {
   const code = i.customId.slice(4).toLowerCase();
   const skin = readSkins()[code];
   if (!skin) return i.reply({ content: 'Skin not found in the registry. Contact an administrator.', ephemeral: true });
-  if (!i.inGuild() || !i.member?.roles?.cache?.has(REQUIRED_ROLE_ID)) {
+  if (!i.inGuild()) return i.reply({ content: 'Use this button inside the server.', ephemeral: true });
+  const member = await i.guild.members.fetch(i.user.id).catch(() => null);
+  if (!member || !member.roles.cache.has(REQUIRED_ROLE_ID)) {
     return i.reply({ content: 'You need the required Beyond Transit role to get this skin.', ephemeral: true });
   }
   await i.deferReply({ ephemeral: true });
