@@ -117,12 +117,31 @@ async function addSkin(i) {
       .setCustomId(`buy_${code}`).setLabel('Get Skin').setStyle(ButtonStyle.Primary));
 
     const skins = readSkins();
-    skins[code] = { code, creator, name, description, sourceGuildId: link.guildId,
+    const isUpdate = Object.prototype.hasOwnProperty.call(skins, code);
+    const existing = isUpdate ? skins[code] : null;
+    const skinRecord = { code, creator, name, description, sourceGuildId: link.guildId,
       sourceChannelId: link.channelId, sourceMessageId: link.messageId,
-      sourceAttachmentIds: sourceAttachments.map(a => a.id), publishedBy: i.user.id, publishedAt: new Date().toISOString() };
-    await new WebhookClient({ url: BT_WEBHOOK_URL }).send({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
+      sourceAttachmentIds: sourceAttachments.map(a => a.id), publishedBy: i.user.id,
+      publishedAt: new Date().toISOString() };
+
+    const webhook = new WebhookClient({ url: BT_WEBHOOK_URL });
+    if (isUpdate && existing.webhookMessageId) {
+      // Edit the existing published webhook post so the same code updates in place.
+      await webhook.editMessage(existing.webhookMessageId, {
+        embeds: [embed],
+        components: [row],
+        allowedMentions: { parse: [] },
+      });
+      skinRecord.webhookMessageId = existing.webhookMessageId;
+    } else {
+      // First publication for this code; save the webhook message ID for future updates.
+      const sent = await webhook.send({ embeds: [embed], components: [row], allowedMentions: { parse: [] }, withResponse: true });
+      skinRecord.webhookMessageId = sent.resource?.message?.id || sent.id || null;
+    }
+
+    skins[code] = skinRecord;
     writeSkins(skins);
-    return i.editReply(`Published **${name}** with code \`${code}\`.`);
+    return i.editReply(`${isUpdate ? 'Updated' : 'Added'} **${name}** with code \`${code}\`.`);
   } catch (e) { console.error('add-skin failed:', e); return i.editReply(`Could not publish skin: ${e.message || 'Unknown error'}`); }
 }
 
