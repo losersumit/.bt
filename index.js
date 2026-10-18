@@ -20,12 +20,6 @@ function writeSkins(value) {
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n');
   fs.renameSync(tmp, DATA_FILE);
 }
-function parseColor(value) {
-  if (!value) return DEFAULT_COLOR;
-  const hex = value.trim().replace(/^#/, '');
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) throw new Error('Color must be a 6-digit hex value, e.g. #4452bb.');
-  return parseInt(hex, 16);
-}
 function parseMessageLink(value) {
   let url; try { url = new URL(value); } catch { throw new Error('Provide a valid Discord message link.'); }
   if (!['discord.com', 'www.discord.com', 'canary.discord.com', 'ptb.discord.com'].includes(url.hostname)) throw new Error('Provide a Discord message link.');
@@ -46,7 +40,6 @@ const command = new SlashCommandBuilder().setName('add-skin').setDescription('Pu
   .addStringOption(o => o.setName('skin-creator').setDescription('Skin creator').setRequired(true))
   .addStringOption(o => o.setName('name').setDescription('Skin name').setRequired(true))
   .addStringOption(o => o.setName('description').setDescription('Skin description').setRequired(true))
-  .addStringOption(o => o.setName('color').setDescription('Optional hex color, e.g. #4452bb').setRequired(false))
   .addRoleOption(o => o.setName('roles').setDescription('Role required to get this skin').setRequired(true));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
@@ -102,7 +95,7 @@ async function addSkin(i) {
     const creator = i.options.getString('skin-creator', true);
     const name = i.options.getString('name', true);
     const description = i.options.getString('description', true);
-    const color = parseColor(i.options.getString('color'));
+    const color = DEFAULT_COLOR;
     const requiredRole = i.options.getRole('roles', true);
     if (link.guildId !== i.guildId) return i.editReply('The source message must be in this server.');
     const sourceChannel = await client.channels.fetch(link.channelId);
